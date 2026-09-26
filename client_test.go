@@ -451,6 +451,11 @@ func TestClientReadPublish(t *testing.T) {
 							Arguments: []any{
 								amf0.Object{
 									{Key: "app", Value: "stream"},
+									{Key: "fourCcList", Value: amf0.StrictArray{
+										"avc1",
+										"hvc1",
+										"mp4a",
+									}},
 									{Key: "flashVer", Value: "LNX 9,0,124,2"},
 									{Key: "tcUrl", Value: "rtmp://127.0.0.1:9121/stream"},
 									{Key: "objectEncoding", Value: float64(0)},
@@ -712,7 +717,7 @@ func TestClientReadPublish(t *testing.T) {
 
 			case "publish":
 				require.Equal(t, uint64(3427), c.BytesReceived())
-				require.Equal(t, uint64(0xd3e), c.BytesSent())
+				require.Equal(t, uint64(0xd64), c.BytesSent())
 			}
 
 			<-done

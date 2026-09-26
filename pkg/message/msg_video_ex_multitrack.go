@@ -20,6 +20,7 @@ const (
 type VideoExMultitrack struct {
 	MultitrackType VideoExMultitrackType
 	TrackID        uint8
+	IsKeyFrame     bool
 	Wrapped        Message
 }
 
@@ -27,6 +28,9 @@ func (m *VideoExMultitrack) unmarshal(raw *rawmessage.Message) error { //nolint:
 	if len(raw.Body) < 7 {
 		return fmt.Errorf("not enough bytes")
 	}
+
+	frameType := (raw.Body[0] >> 4) & 0b111
+	m.IsKeyFrame = (frameType == 1)
 
 	m.MultitrackType = VideoExMultitrackType(raw.Body[1] >> 4)
 	switch m.MultitrackType {
@@ -79,8 +83,13 @@ func (m VideoExMultitrack) marshal() (*rawmessage.Message, error) {
 
 	body := make([]byte, 7+len(wrappedEnc.Body)-5)
 
-	body[0] = 0b10000000 | byte(VideoExTypeMultitrack)
-	body[1] = wrappedEnc.Body[0] & 0b1111
+	frameType := byte(2) // InterFrame
+	if m.IsKeyFrame {
+		frameType = 1 // KeyFrame
+	}
+
+	body[0] = 0b10000000 | (frameType << 4) | byte(VideoExTypeMultitrack)
+	body[1] = (byte(m.MultitrackType) << 4) | (wrappedEnc.Body[0] & 0b1111)
 	copy(body[2:], wrappedEnc.Body[1:])
 	body[6] = m.TrackID
 	copy(body[7:], wrappedEnc.Body[5:])

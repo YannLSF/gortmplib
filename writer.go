@@ -184,8 +184,9 @@ func mpeg1AudioChannels(m mpeg1audio.ChannelMode) bool {
 
 // Writer provides functions to write outgoing data.
 type Writer struct {
-	Conn   Conn
-	Tracks []*Track
+	Conn     Conn
+	Tracks   []*Track
+	Metadata []any
 
 	videoTrackToID map[*Track]uint8
 	audioTrackToID map[*Track]uint8
@@ -225,96 +226,109 @@ func (w *Writer) writeTracks() error {
 		}
 	}
 
-	metadata := amf0.Object{
-		{
-			Key: "videocodecid",
-			Value: func() float64 {
-				if len(videoTracks) != 0 {
-					return float64(videoTracks[0].Codec.ID())
-				}
-				return 0
-			}(),
-		},
-		{
-			Key:   "videodatarate",
-			Value: float64(0),
-		},
-		{
-			Key: "audiocodecid",
-			Value: func() float64 {
-				if len(audioTracks) != 0 {
-					return float64(audioTracks[0].Codec.ID())
-				}
-				return 0
-			}(),
-		},
-		{
-			Key:   "audiodatarate",
-			Value: float64(0),
-		},
-	}
+	var err error
 
-	if len(videoTracks) > 1 {
-		val := make(amf0.Object, len(videoTracks)-1)
-
-		for i, track := range videoTracks[1:] {
-			val[i] = amf0.ObjectEntry{
-				Key: strconv.FormatInt(int64(i+2), 10),
-				Value: amf0.Object{
-					{
-						Key:   "videocodecid",
-						Value: float64(track.Codec.ID()),
-					},
-					{
-						Key:   "videodatarate",
-						Value: float64(0),
-					},
-				},
-			}
+	if len(w.Metadata) != 0 {
+		err = w.Conn.Write(&message.DataAMF0{
+			ChunkStreamID:   4,
+			MessageStreamID: 0x1000000,
+			Payload:         append([]any(nil), w.Metadata...),
+		})
+		if err != nil {
+			return err
+		}
+	} else {
+		metadata := amf0.Object{
+			{
+				Key: "videocodecid",
+				Value: func() float64 {
+					if len(videoTracks) != 0 {
+						return float64(videoTracks[0].Codec.ID())
+					}
+					return 0
+				}(),
+			},
+			{
+				Key:   "videodatarate",
+				Value: float64(0),
+			},
+			{
+				Key: "audiocodecid",
+				Value: func() float64 {
+					if len(audioTracks) != 0 {
+						return float64(audioTracks[0].Codec.ID())
+					}
+					return 0
+				}(),
+			},
+			{
+				Key:   "audiodatarate",
+				Value: float64(0),
+			},
 		}
 
-		metadata = append(metadata, amf0.ObjectEntry{
-			Key:   "videoTrackIdInfoMap",
-			Value: val,
-		})
-	}
+		if len(videoTracks) > 1 {
+			val := make(amf0.Object, len(videoTracks)-1)
 
-	if len(audioTracks) > 1 {
-		val := make(amf0.Object, len(audioTracks)-1)
-
-		for i, track := range audioTracks[1:] {
-			val[i] = amf0.ObjectEntry{
-				Key: strconv.FormatInt(int64(i+2), 10),
-				Value: amf0.Object{
-					{
-						Key:   "audiocodecid",
-						Value: float64(track.Codec.ID()),
+			for i, track := range videoTracks[1:] {
+				val[i] = amf0.ObjectEntry{
+					Key: strconv.FormatInt(int64(i+1), 10),
+					Value: amf0.Object{
+						{
+							Key:   "videocodecid",
+							Value: float64(track.Codec.ID()),
+						},
+						{
+							Key:   "videodatarate",
+							Value: float64(0),
+						},
 					},
-					{
-						Key:   "audiodatarate",
-						Value: float64(0),
-					},
-				},
+				}
 			}
+
+			metadata = append(metadata, amf0.ObjectEntry{
+				Key:   "videoTrackIdInfoMap",
+				Value: val,
+			})
 		}
 
-		metadata = append(metadata, amf0.ObjectEntry{
-			Key:   "audioTrackIdInfoMap",
-			Value: val,
-		})
-	}
+		if len(audioTracks) > 1 {
+			val := make(amf0.Object, len(audioTracks)-1)
 
-	err := w.Conn.Write(&message.DataAMF0{
-		ChunkStreamID:   4,
-		MessageStreamID: 0x1000000,
-		Payload: []any{
-			"@setDataFrame",
-			"onMetaData",
-			metadata,
-		},
-	})
-	if err != nil {
-		return err
+			for i, track := range audioTracks[1:] {
+				val[i] = amf0.ObjectEntry{
+					Key: strconv.FormatInt(int64(i+1), 10),
+					Value: amf0.Object{
+						{
+							Key:   "audiocodecid",
+							Value: float64(track.Codec.ID()),
+						},
+						{
+							Key:   "audiodatarate",
+							Value: float64(0),
+						},
+					},
+				}
+			}
+
+			metadata = append(metadata, amf0.ObjectEntry{
+				Key:   "audioTrackIdInfoMap",
+				Value: val,
+			})
+		}
+
+		err = w.Conn.Write(&message.DataAMF0{
+			ChunkStreamID:   4,
+			MessageStreamID: 0x1000000,
+			Payload: []any{
+				"@setDataFrame",
+				"onMetaData",
+				metadata,
+			},
+		})
+		if err != nil {
+			return err
+		}
 	}
 
 	for id, track := range videoTracks {
@@ -340,6 +354,7 @@ func (w *Writer) writeTracks() error {
 				msg = &message.VideoExMultitrack{
 					MultitrackType: 0x0,
 					TrackID:        uint8(id),
+					IsKeyFrame:     true,
 					Wrapped:        msg,
 				}
 			}
@@ -372,6 +387,7 @@ func (w *Writer) writeTracks() error {
 				msg = &message.VideoExMultitrack{
 					MultitrackType: 0x0,
 					TrackID:        uint8(id),
+					IsKeyFrame:     true,
 					Wrapped:        msg,
 				}
 			}
@@ -406,6 +422,7 @@ func (w *Writer) writeTracks() error {
 				msg = &message.VideoExMultitrack{
 					MultitrackType: 0x0,
 					TrackID:        uint8(id),
+					IsKeyFrame:     true,
 					Wrapped:        msg,
 				}
 			}
@@ -444,6 +461,7 @@ func (w *Writer) writeTracks() error {
 				err = w.Conn.Write(&message.VideoExMultitrack{
 					MultitrackType: 0x0,
 					TrackID:        uint8(id),
+					IsKeyFrame:     true,
 					Wrapped: &message.VideoExSequenceStart{
 						ChunkStreamID:   message.VideoChunkStreamID,
 						MessageStreamID: 0x1000000,
@@ -663,6 +681,7 @@ func (w *Writer) WriteH265(track *Track, pts time.Duration, dts time.Duration, a
 		msg = &message.VideoExMultitrack{
 			MultitrackType: 0x0,
 			TrackID:        id,
+			IsKeyFrame:     h265.IsRandomAccess(au),
 			Wrapped:        msg,
 		}
 	}
@@ -716,6 +735,7 @@ func (w *Writer) WriteH264(track *Track, pts time.Duration, dts time.Duration, a
 	return w.Conn.Write(&message.VideoExMultitrack{
 		MultitrackType: 0x0,
 		TrackID:        id,
+		IsKeyFrame:     h264.IsRandomAccess(au),
 		Wrapped:        msg,
 	})
 }

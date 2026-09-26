@@ -277,10 +277,27 @@ func h264AUSize(au [][]byte) int {
 	return size
 }
 
+func isOnMetaDataPayload(payload []any) bool {
+	if len(payload) >= 2 {
+		if name, ok := payload[0].(string); ok && name == "onMetaData" {
+			return true
+		}
+	}
+
+	if len(payload) >= 3 {
+		name0, ok0 := payload[0].(string)
+		name1, ok1 := payload[1].(string)
+		return ok0 && ok1 && name0 == "@setDataFrame" && name1 == "onMetaData"
+	}
+
+	return false
+}
+
 // Reader provides functions to read incoming data.
 type Reader struct {
 	Conn Conn
 
+	metadata             []any
 	videoTracks          map[uint8]*Track
 	audioTracks          map[uint8]*Track
 	onVideoData          map[uint8]func(message.Message) error
@@ -390,6 +407,10 @@ func (r *Reader) readTracks() (map[uint8]*Track, map[uint8]*Track, error) {
 		msg, err := r.Conn.Read()
 		if err != nil {
 			return nil, nil, err
+		}
+
+		if dataMsg, ok := msg.(*message.DataAMF0); ok && r.metadata == nil && isOnMetaDataPayload(dataMsg.Payload) {
+			r.metadata = append([]any(nil), dataMsg.Payload...)
 		}
 
 		switch msg := msg.(type) {
@@ -547,6 +568,13 @@ func (r *Reader) readTracks() (map[uint8]*Track, map[uint8]*Track, error) {
 }
 
 // Tracks returns detected tracks
+// Metadata returns the original onMetaData payload, when present.
+// The returned slice is a shallow copy; nested AMF values are kept untouched
+// so their original AMF types (including ECMA arrays) are preserved.
+func (r *Reader) Metadata() []any {
+	return append([]any(nil), r.metadata...)
+}
+
 func (r *Reader) Tracks() []*Track {
 	ret := make([]*Track, len(r.videoTracks)+len(r.audioTracks))
 	i := 0

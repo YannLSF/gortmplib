@@ -180,6 +180,8 @@ type Client struct {
 	authState     int
 	authSalt      string
 	authChallenge string
+	streamKey     string
+	publishing    bool
 }
 
 // Initialize initializes Client.
@@ -347,10 +349,35 @@ func (c *Client) initialize3() error {
 
 	connectArg := amf0.Object{
 		{Key: "app", Value: app},
-		{Key: "flashVer", Value: "LNX 9,0,124,2"},
-		{Key: "tcUrl", Value: tcURL},
-		{Key: "objectEncoding", Value: float64(encodingAMF0)},
 	}
+
+	if c.Publish {
+		connectArg = append(connectArg,
+				    amf0.ObjectEntry{
+					    Key: "fourCcList",
+					    Value: amf0.StrictArray{
+						    fourCCToString(message.FourCCAVC),
+				    fourCCToString(message.FourCCHEVC),
+				    fourCCToString(message.FourCCMP4A),
+					    },
+				    },
+		)
+	}
+
+	connectArg = append(connectArg,
+			    amf0.ObjectEntry{
+				    Key:   "flashVer",
+				    Value: "LNX 9,0,124,2",
+			    },
+		     amf0.ObjectEntry{
+			     Key:   "tcUrl",
+			     Value: tcURL,
+		     },
+		     amf0.ObjectEntry{
+			     Key:   "objectEncoding",
+			     Value: float64(encodingAMF0),
+		     },
+	)
 
 	if !c.Publish {
 		connectArg = append(connectArg,
@@ -584,6 +611,9 @@ func (c *Client) initialize3() error {
 		if res.Name != "onStatus" || !resultIsOK1(res) {
 			return fmt.Errorf("bad result: %v", res)
 		}
+
+		c.streamKey = streamKey
+		c.publishing = true
 	}
 
 	return nil
@@ -591,6 +621,36 @@ func (c *Client) initialize3() error {
 
 // Close closes the connection.
 func (c *Client) Close() {
+	if c.nconn == nil {
+		return
+	}
+
+	if c.Publish && c.publishing && c.mrw != nil {
+		// Match the graceful shutdown performed by librtmp/OBS:
+		// FCUnpublish, then deleteStream, then close the connection.
+		_ = c.mrw.Write(&message.CommandAMF0{
+			ChunkStreamID: 3,
+			Name:          "FCUnpublish",
+			CommandID:     6,
+			Arguments: []any{
+				nil,
+				c.streamKey,
+			},
+		})
+
+		_ = c.mrw.Write(&message.CommandAMF0{
+			ChunkStreamID: 3,
+			Name:          "deleteStream",
+			CommandID:     7,
+			Arguments: []any{
+				nil,
+				float64(1),
+			},
+		})
+
+		c.publishing = false
+	}
+
 	c.nconn.Close()
 }
 
