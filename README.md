@@ -1,3 +1,16 @@
+<!-- YANNLSF-ENHANCED-RTMP -->
+
+> [!IMPORTANT]
+> **Enhanced RTMP multitrack fork**
+>
+> The `enhanced-rtmp-multitrack` branch adds experimental Enhanced RTMP
+> multitrack publishing support used by the companion MediaMTX fork.
+>
+> See **[ENHANCED_RTMP.md](ENHANCED_RTMP.md)** for implementation notes,
+> testing and upgrade guidance.
+
+---
+
 # gortmplib
 
 [![Test](https://github.com/bluenviron/gortmplib/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/bluenviron/gortmplib/actions/workflows/test.yml?query=branch%3Amain)
